@@ -62,3 +62,43 @@ class TTSService:
             import traceback
             traceback.print_exc()
             return b""
+
+    def synthesize_stream(self, text: str):
+        """
+        Synthesize speech from text and yield audio chunks.
+        
+        Args:
+            text: Text to convert to speech
+            
+        Yields:
+            Raw PCM audio bytes (8kHz, 16-bit, mono)
+        """
+        if not text or not text.strip():
+            print("⚠️ TTSService: Empty text, returning no audio")
+            return
+            
+        try:
+            print(f"🔊 TTSService: Streaming synthesis for: '{text}'")
+            
+            # Use Cartesia SDK - returns generator
+            audio_generator = self.client.tts.bytes(
+                model_id=self.model_id,
+                transcript=text,
+                voice={"mode": "id", "id": self.voice_id},
+                output_format={
+                    "container": "raw",
+                    "encoding": "pcm_s16le",
+                    "sample_rate": 8000
+                }
+            )
+            
+            for chunk in audio_generator:
+                if chunk:
+                    yield chunk
+            
+            print(f"✅ TTSService: Streaming complete")
+            
+        except Exception as e:
+            print(f"❌ TTSService error: {e}")
+            import traceback
+            traceback.print_exc()

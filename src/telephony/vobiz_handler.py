@@ -89,9 +89,11 @@ class VobizStreamHandler:
                     # Initial Greeting
                     greeting = llm_service.get_greeting()
                     print(f"🤖 Greeting: {greeting}")
-                    audio = tts_service.synthesize(greeting)
-                    if audio:
-                        await audio_player.play_audio(audio)
+                    
+                    # Stream greeting
+                    tts_stream = tts_service.synthesize_stream(greeting)
+                    if tts_stream:
+                        await audio_player.stream_audio(tts_stream)
 
                 elif event == "media":
                     packet_count += 1
@@ -145,23 +147,23 @@ class VobizStreamHandler:
                                 llm_latency = (time.perf_counter() - llm_start) * 1000
                                 print(f"🤖 Agent Responding: '{response}'")
                                 
-                                # 3. Synthesize (TTS)
+                                # 3. Stream Synthesis (TTS)
                                 tts_start = time.perf_counter()
-                                tts_audio = tts_service.synthesize(response)
+                                tts_stream = tts_service.synthesize_stream(response)
                                 tts_latency = (time.perf_counter() - tts_start) * 1000
                                 
-                                # 4. Calculate Total RTT
+                                # 4. Calculate Initial Latency (TTFB)
                                 rtt_total = (time.perf_counter() - rtt_start) * 1000
                                 
                                 print(f"⏱️  LATENCY METRICS:")
                                 print(f"   - STT Delay: {stt_latency:.2f}ms")
                                 print(f"   - LLM Time:  {llm_latency:.2f}ms")
-                                print(f"   - TTS Time:  {tts_latency:.2f}ms")
-                                print(f"   - Total RTT: {rtt_total:.2f}ms")
+                                print(f"   - TTS Init:  {tts_latency:.2f}ms")
+                                print(f"   - Total TTFB: {rtt_total:.2f}ms")
                                 
-                                # Play Audio
-                                if tts_audio:
-                                    await audio_player.play_audio(tts_audio)
+                                # Stream Audio
+                                if tts_stream:
+                                    await audio_player.stream_audio(tts_stream)
                             else:
                                 print("⚠️ No transcript received yet")
 
