@@ -7,6 +7,7 @@ import json
 import logging
 import uvicorn
 
+from src.config import config
 from src.vad.vad_factory import VADFactory
 from src.asr.asr_factory import ASRFactory
 from src.telephony.fastapi_app import create_app
@@ -14,39 +15,50 @@ from src.telephony.fastapi_app import create_app
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, config.LOG_LEVEL.upper()),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
 
 def parse_args():
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(description="VoiceStreamAI Telephony Server")
+    """Parse command-line arguments. Defaults are loaded from config/env."""
+    parser = argparse.ArgumentParser(
+        description="VoiceStreamAI Telephony Server",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Configuration is loaded from .env file and can be overridden by command-line arguments.
+Create a .env file from .env.example and set your credentials there.
+        """
+    )
 
     # Server configuration
-    parser.add_argument("--host", type=str, default="0.0.0.0", help="Host to bind to")
-    parser.add_argument("--port", type=int, default=8080, help="Port to bind to")
-    parser.add_argument("--base-url", type=str, required=True,
-                        help="Base URL for WebSocket connections (e.g., ws://localhost:8080)")
+    parser.add_argument("--host", type=str, default=config.HOST,
+                        help=f"Host to bind to (default: {config.HOST})")
+    parser.add_argument("--port", type=int, default=config.PORT,
+                        help=f"Port to bind to (default: {config.PORT})")
+    parser.add_argument("--base-url", type=str, default=config.BASE_URL,
+                        help="Base URL for WebSocket connections (default: from .env)")
 
     # SSL configuration
-    parser.add_argument("--ssl-certfile", type=str, help="Path to SSL certificate file")
-    parser.add_argument("--ssl-keyfile", type=str, help="Path to SSL key file")
+    parser.add_argument("--ssl-certfile", type=str, default=config.SSL_CERTFILE,
+                        help="Path to SSL certificate file")
+    parser.add_argument("--ssl-keyfile", type=str, default=config.SSL_KEYFILE,
+                        help="Path to SSL key file")
 
     # VAD configuration
-    parser.add_argument("--vad-type", type=str, default="pyannote",
+    parser.add_argument("--vad-type", type=str, default=config.VAD_TYPE,
                         choices=["silero", "pyannote", "webrtc"],
-                        help="Type of VAD to use")
-    parser.add_argument("--vad-args", type=str, default="{}",
-                        help="JSON string of VAD-specific arguments")
+                        help=f"Type of VAD to use (default: {config.VAD_TYPE})")
+    parser.add_argument("--vad-args", type=str, default=None,
+                        help="JSON string of VAD-specific arguments (overrides .env)")
 
     # ASR configuration
-    parser.add_argument("--asr-type", type=str, default="faster_whisper",
+    parser.add_argument("--asr-type", type=str, default=config.ASR_TYPE,
                         choices=["faster_whisper"],
-                        help="Type of ASR to use")
-    parser.add_argument("--asr-args", type=str, default="{}",
-                        help="JSON string of ASR-specific arguments")
+                        help=f"Type of ASR to use (default: {config.ASR_TYPE})")
+    parser.add_argument("--asr-args", type=str, default=None,
+                        help="JSON string of ASR-specific arguments (overrides .env)")
 
     return parser.parse_args()
 
@@ -55,13 +67,36 @@ def main():
     """Main entry point for the telephony server."""
     args = parse_args()
 
-    # Parse JSON arguments
-    try:
-        vad_args = json.loads(args.vad_args)
-        asr_args = json.loads(args.asr_args)
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse JSON arguments: {e}")
+    # Validate configuration
+    if not args.base_url:
+        logger.error("BASE_URL is required. Set it in .env file or use --base-url flag")
         return
+
+    # Use config-based args if command-line args not provided
+    if args.vad_args:
+        try:
+            vad_args = json.loads(args.vad_args)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse VAD args JSON: {e}")
+            return
+    else:
+        try:
+            vad_args = config.get_vad_args()
+        except ValueError as e:
+            logger.error(str(e))
+            return
+
+    if args.asr_args:
+        try:
+            asr_args = json.loads(args.asr_args)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse ASR args JSON: {e}")
+            return
+    else:
+        asr_args = config.get_asr_args()
+
+    # Display configuration
+    config.display()
 
     logger.info("Initializing VoiceStreamAI Telephony Server...")
     logger.info(f"VAD: {args.vad_type}, ASR: {args.asr_type}")
