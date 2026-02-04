@@ -31,11 +31,17 @@ class VobizStreamHandler:
     async def handle_stream(self, websocket: WebSocket):
         """
         Handle a Vobiz WebSocket stream connection.
-
+        
         Args:
             websocket: FastAPI WebSocket connection
         """
-        await websocket.accept()
+        logger.info("Initializing Vobiz stream handler")
+        try:
+            await websocket.accept()
+            logger.info("WebSocket connection accepted")
+        except Exception as e:
+            logger.error(f"Failed to accept WebSocket: {e}")
+            return
 
         # Create unique client for this call
         client_id = str(uuid.uuid4())

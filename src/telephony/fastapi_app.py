@@ -50,14 +50,16 @@ def create_app(vad_pipeline, asr_pipeline, base_url: str) -> FastAPI:
         # XML escape ampersands in URL
         ws_url_escaped = ws_url.replace('&', '&amp;')
 
+        print(f"DEBUG: Answer endpoint called. WebSocket URL: {ws_url_escaped}")
         logger.info(f"Answer endpoint called - WebSocket URL: {ws_url_escaped}")
 
-        # Vobiz-compatible XML format with bidirectional streaming
+        # Vobiz XML format: URL is inner content, not attribute!
         xml_response = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Stream url="{ws_url_escaped}" bidirectional="true" />
+    <Stream bidirectional="true" keepCallAlive="true" audioTrack="inbound" contentType="audio/x-mulaw;rate=8000" streamTimeout="7200">{ws_url_escaped}</Stream>
 </Response>"""
 
+        print(f"DEBUG: Returning XML: {xml_response}")
         logger.info(f"Returning XML: {xml_response}")
         return Response(content=xml_response, media_type="application/xml")
 
@@ -67,7 +69,14 @@ def create_app(vad_pipeline, asr_pipeline, base_url: str) -> FastAPI:
         WebSocket endpoint for Vobiz audio streaming.
         Receives µ-law audio and returns transcriptions.
         """
-        await handler.handle_stream(websocket)
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"WebSocket connection attempt from {websocket.client}")
+        print(f"DEBUG: WebSocket connection attempt from {websocket.client}")
+        try:
+            await handler.handle_stream(websocket)
+        except Exception as e:
+            logger.error(f"WebSocket endpoint error: {e}", exc_info=True)
 
     @app.post("/api/telephony/hangup")
     async def hangup_call():
