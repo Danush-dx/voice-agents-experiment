@@ -6,7 +6,7 @@ import os
 import asyncio
 import base64
 import json
-from elevenlabs.client import ElevenLabs
+from elevenlabs import ElevenLabs, RealtimeEvents
 from elevenlabs.realtime import RealtimeAudioOptions, AudioFormat
 from src.config import config
 
@@ -23,7 +23,9 @@ class ScribeService:
         self.connection = None
         self.current_transcript = []
         self.is_connected = False
-        self.receiver_task = None
+        # We don't need a manual receiver task if using 'on' handlers, 
+        # but we might need to keep the connection alive or processing. 
+        # The SDK likely runs a background task for the websocket.
 
     async def connect(self):
         """Establish WebSocket connection to Scribe."""
@@ -38,10 +40,14 @@ class ScribeService:
             )
             
             self.connection = await self.client.speech_to_text.realtime.connect(options)
-            self.is_connected = True
             
-            # Start background receiver
-            self.receiver_task = asyncio.create_task(self._receive_loop())
+            # Register Event Handlers
+            self.connection.on(RealtimeEvents.PARTIAL_TRANSCRIPT, self._on_transcript)
+            self.connection.on(RealtimeEvents.COMMITTED_TRANSCRIPT, self._on_transcript)
+            self.connection.on(RealtimeEvents.ERROR, self._on_error)
+            self.connection.on(RealtimeEvents.CLOSE, self._on_close)
+            
+            self.is_connected = True
             print("✅ ScribeService: Connected")
             
         except Exception as e:
@@ -49,28 +55,28 @@ class ScribeService:
             self.is_connected = False
             raise
 
-    async def _receive_loop(self):
-        """Background loop to receive transcripts."""
+    def _on_transcript(self, event):
+        """Handle transcript events."""
+        # Check event structure. It's likely an object with 'text'.
         try:
-            async for event in self.connection:
-                # Scribe v2 realtime events often have 'text' attribute
-                if hasattr(event, 'text') and event.text:
-                    text = event.text.strip()
-                    if text:
-                        self.current_transcript.append(text)
-                        print(f"📝 Scribe Partial: {text}")
-                elif isinstance(event, dict) and 'text' in event:
-                     text = event['text'].strip()
-                     if text:
-                        self.current_transcript.append(text)
-                        print(f"📝 Scribe Partial (dict): {text}")
-                        
+            text = ""
+            if hasattr(event, 'text'):
+                text = event.text
+            elif isinstance(event, dict):
+                text = event.get('text', '')
+            
+            if text:
+                print(f"📝 Scribe: {text}")
+                self.current_transcript.append(text)
         except Exception as e:
-            # Silently handle task cancellation or closed connections
-            if self.is_connected:
-                print(f"❌ ScribeService receive error: {e}")
-        finally:
-            self.is_connected = False
+            print(f"❌ Error processing transcript event: {e}")
+
+    def _on_error(self, event):
+        print(f"❌ Scribe Error Event: {event}")
+
+    def _on_close(self, event=None):
+        print(f"Scribe connection closed. Event: {event}")
+        self.is_connected = False
 
     async def send_audio(self, pcm_bytes: bytes):
         """Send PCM audio chunk to Scribe."""
@@ -78,26 +84,25 @@ class ScribeService:
             return
         
         try:
-            # Send audio chunk
-            await self.connection.send_audio(pcm_bytes)
+            # Base64 encode
+            b64_audio = base64.b64encode(pcm_bytes).decode("utf-8")
+            # Send as JSON payload per help docs
+            await self.connection.send({"audio_base_64": b64_audio})
         except Exception as e:
             print(f"❌ ScribeService send error: {e}")
 
     def get_and_clear_transcript(self) -> str:
         """Return accumulated transcript and clear buffer."""
+        # Join with space and clear
         full_text = " ".join(self.current_transcript).strip()
         self.current_transcript = []
         return full_text
 
     async def close(self):
         """Close connection."""
-        self.is_connected = False
-        if self.receiver_task:
-            self.receiver_task.cancel()
         if self.connection:
             try:
-                # The SDK connection might not have an explicit close, 
-                # but canceling the receiver loop usually suffices.
-                pass
+                await self.connection.close()
             except:
                 pass
+        self.is_connected = False

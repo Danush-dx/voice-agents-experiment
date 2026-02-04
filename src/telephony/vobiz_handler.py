@@ -64,7 +64,7 @@ class VobizStreamHandler:
         is_user_speaking = False
         silence_frames = 0
         SILENCE_THRESHOLD = 25  # ~500ms (20ms per frame)
-        ENERGY_THRESHOLD = 300  # RMS threshold
+        ENERGY_THRESHOLD = 1000  # RMS threshold
         
         packet_count = 0
 
