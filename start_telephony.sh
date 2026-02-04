@@ -39,7 +39,7 @@ if [ -z "$HF_TOKEN" ] || [ "$HF_TOKEN" = "your_huggingface_token_here" ]; then
     MISSING="${MISSING}\n  - HF_TOKEN (HuggingFace token)"
 fi
 
-if [ -z "$BASE_URL" ] || [ "$BASE_URL" = "https://your-ngrok-url.ngrok-free.app" ]; then
+if [ -z "$BASE_URL" ] || [ "$BASE_URL" = "https://<<URL>>.app" ]; then
     MISSING="${MISSING}\n  - BASE_URL (ngrok or public URL)"
 fi
 

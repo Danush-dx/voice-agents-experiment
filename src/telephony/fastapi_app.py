@@ -39,18 +39,26 @@ def create_app(vad_pipeline, asr_pipeline, base_url: str) -> FastAPI:
     async def answer_call():
         """
         Vobiz webhook endpoint for incoming calls.
-        Returns TwiML-style XML to connect the call to our WebSocket.
+        Returns XML to connect the call to our WebSocket.
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         ws_url = app.state.base_url.replace("http://", "ws://").replace("https://", "wss://")
         ws_url = f"{ws_url}/api/telephony/stream"
 
+        # XML escape ampersands in URL
+        ws_url_escaped = ws_url.replace('&', '&amp;')
+
+        logger.info(f"Answer endpoint called - WebSocket URL: {ws_url_escaped}")
+
+        # Vobiz-compatible XML format with bidirectional streaming
         xml_response = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Connect>
-        <Stream url="{ws_url}"/>
-    </Connect>
+    <Stream url="{ws_url_escaped}" bidirectional="true" />
 </Response>"""
 
+        logger.info(f"Returning XML: {xml_response}")
         return Response(content=xml_response, media_type="application/xml")
 
     @app.websocket("/api/telephony/stream")
@@ -60,5 +68,16 @@ def create_app(vad_pipeline, asr_pipeline, base_url: str) -> FastAPI:
         Receives µ-law audio and returns transcriptions.
         """
         await handler.handle_stream(websocket)
+
+    @app.post("/api/telephony/hangup")
+    async def hangup_call():
+        """
+        Vobiz hangup endpoint for call completion events.
+        Returns empty XML response.
+        """
+        xml_response = """<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+</Response>"""
+        return Response(content=xml_response, media_type="application/xml")
 
     return app
