@@ -33,7 +33,7 @@ class Config:
     VAD_TYPE: str = os.getenv('VAD_TYPE', 'pyannote')
 
     # ASR Configuration
-    ASR_TYPE: str = os.getenv('ASR_TYPE', 'elevenlabs')
+    ASR_TYPE: str = os.getenv('ASR_TYPE', 'groq')
     ASR_MODEL_SIZE: str = os.getenv('ASR_MODEL_SIZE', 'large-v3')
     ASR_DEVICE: str = os.getenv('ASR_DEVICE', 'cpu')
     ASR_COMPUTE_TYPE: str = os.getenv('ASR_COMPUTE_TYPE', 'int8')
@@ -42,14 +42,16 @@ class Config:
     ELEVENLABS_API_KEY: Optional[str] = os.getenv('ELEVENLABS_API_KEY')
     ELEVENLABS_STT_MODEL: str = "scribe_v2_realtime"
 
-    # Groq LLM Configuration (Spec: Groq llama-3.1-8b-instant)
+    # Groq LLM & STT Configuration (Spec: Groq llama-3.1-8b-instant, whisper-large-v3)
     GROQ_API_KEY: Optional[str] = os.getenv('GROQ_API_KEY')
     GROQ_LLM_MODEL: str = "llama-3.1-8b-instant"
+    GROQ_STT_MODEL: str = "whisper-large-v3"
+    GROQ_ASR_MODEL: str = "whisper-large-v3"
 
     # Cartesia TTS Configuration (Spec: Cartesia Sonic 3)
     CARTESIA_API_KEY: Optional[str] = os.getenv('CARTESIA_API_KEY')
     CARTESIA_TTS_MODEL: str = "sonic-3"
-    CARTESIA_VOICE_ID: str = "47f3bbb1-e98f-4e0c-92c5-5f0325e1e206"
+    CARTESIA_VOICE_ID: str = "829ccd10-f8b3-43cd-b8a0-4aeaa81f3b30"
 
     # SSL Configuration
     SSL_CERTFILE: Optional[str] = os.getenv('SSL_CERTFILE')
@@ -80,6 +82,11 @@ class Config:
                 "device": cls.ASR_DEVICE,
                 "compute_type": cls.ASR_COMPUTE_TYPE
             }
+        if cls.ASR_TYPE == 'groq':
+            return {
+                "api_key": cls.GROQ_API_KEY,
+                "model": cls.GROQ_ASR_MODEL
+            }
         return {}
 
     @classmethod
@@ -106,7 +113,16 @@ class Config:
         print(f"Server Host:          {cls.HOST}")
         print(f"Server Port:          {cls.PORT}")
         print(f"Base URL:             {cls.BASE_URL}")
-        print(f"STT Model:            {cls.ELEVENLABS_STT_MODEL}")
+        
+        if cls.ASR_TYPE == 'groq':
+            print(f"STT Model:            {cls.GROQ_STT_MODEL}")
+        elif cls.ASR_TYPE == 'elevenlabs':
+            print(f"STT Model:            {cls.ELEVENLABS_STT_MODEL}")
+        elif cls.ASR_TYPE == 'faster_whisper':
+            print(f"STT Model:            {cls.ASR_MODEL_SIZE} (Faster Whisper)")
+        else:
+            print(f"STT Model:            {cls.ASR_TYPE}")
+
         print(f"LLM Model:            {cls.GROQ_LLM_MODEL}")
         print(f"TTS Model:            {cls.CARTESIA_TTS_MODEL}")
         print(f"Log Level:            {cls.LOG_LEVEL}")

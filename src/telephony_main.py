@@ -55,7 +55,7 @@ Create a .env file from .env.example and set your credentials there.
 
     # ASR configuration
     parser.add_argument("--asr-type", type=str, default=config.ASR_TYPE,
-                        choices=["faster_whisper"],
+                        choices=["faster_whisper", "groq", "elevenlabs"],
                         help=f"Type of ASR to use (default: {config.ASR_TYPE})")
     parser.add_argument("--asr-args", type=str, default=None,
                         help="JSON string of ASR-specific arguments (overrides .env)")

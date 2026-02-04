@@ -15,6 +15,7 @@ from src.telephony.audio_converter import AudioConverter
 from src.telephony.llm_service import LLMService
 from src.telephony.tts_service import TTSService
 from src.telephony.scribe_service import ScribeService
+from src.telephony.groq_stt_service import GroqSTTService
 from src.telephony.audio_player import AudioPlayer
 
 
@@ -25,15 +26,16 @@ class VobizStreamHandler:
         """
         Initialize the handler.
         Note: vad_pipeline and asr_pipeline are kept for signature compatibility 
-        but we use local VAD and ScribeService.
+        but we use local VAD and configurable STT service.
         """
         self.vad_pipeline = vad_pipeline
         self.asr_pipeline = asr_pipeline
 
     async def handle_stream(self, websocket: WebSocket):
         """Handle Vobiz WebSocket stream."""
+        stt_info = f"{config.GROQ_STT_MODEL} (Groq)" if config.ASR_TYPE == "groq" else f"{config.ELEVENLABS_STT_MODEL} (ElevenLabs)"
         print("=" * 60)
-        print(f"VOICE AGENT STARTED ({config.ELEVENLABS_STT_MODEL}+{config.GROQ_LLM_MODEL}+{config.CARTESIA_TTS_MODEL})")
+        print(f"VOICE AGENT STARTED ({stt_info}+{config.GROQ_LLM_MODEL}+{config.CARTESIA_TTS_MODEL})")
         print("=" * 60)
         
         try:
@@ -50,10 +52,15 @@ class VobizStreamHandler:
         try:
             llm_service = LLMService()
             tts_service = TTSService()
-            scribe_service = ScribeService()
             
-            # Connect to Scribe Realtime
-            await scribe_service.connect()
+            # Select STT Service
+            if config.ASR_TYPE == "groq":
+                stt_service = GroqSTTService()
+            else:
+                stt_service = ScribeService()
+            
+            # Connect to STT service
+            await stt_service.connect()
             
             print("✅ All services ready")
         except Exception as e:
@@ -96,8 +103,8 @@ class VobizStreamHandler:
                     # 1. Convert Audio (µ-law -> PCM)
                     pcm = converter.convert(payload)
                     
-                    # 2. Feed Scribe STT
-                    await scribe_service.send_audio(pcm)
+                    # 2. Feed STT service
+                    await stt_service.send_audio(pcm)
                     
                     # 3. VAD / Barge-in Logic
                     energy = audioop.rms(pcm, 2)
@@ -124,9 +131,9 @@ class VobizStreamHandler:
                             
                             rtt_start = time.perf_counter()
                             
-                            # 1. Get transcript from Scribe
+                            # 1. Get transcript from STT
                             stt_start = time.perf_counter()
-                            user_text = scribe_service.get_and_clear_transcript()
+                            user_text = await stt_service.get_and_clear_transcript()
                             stt_latency = (time.perf_counter() - stt_start) * 1000
                             
                             if user_text:
@@ -134,7 +141,7 @@ class VobizStreamHandler:
                                 
                                 # 2. Generate Response (LLM)
                                 llm_start = time.perf_counter()
-                                response = llm_service.generate_response(user_text)
+                                response = await llm_service.generate_response(user_text)
                                 llm_latency = (time.perf_counter() - llm_start) * 1000
                                 print(f"🤖 Agent Responding: '{response}'")
                                 
@@ -170,6 +177,6 @@ class VobizStreamHandler:
 
         finally:
             print("📴 Call ended")
-            await scribe_service.close()
+            await stt_service.close()
             llm_service.reset_conversation()
             audio_player.stop()

@@ -3,7 +3,7 @@ LLM Service using Groq API.
 Provides fast inference for voice agent responses.
 """
 import os
-from groq import Groq
+from groq import AsyncGroq
 from src.config import config
 
 
@@ -17,19 +17,26 @@ class LLMService:
             raise ValueError("GROQ_API_KEY environment variable required")
         
         print(f"🔧 LLMService: Initializing Groq with model: {config.GROQ_LLM_MODEL}")
-        self.client = Groq(api_key=api_key)
+        self.client = AsyncGroq(api_key=api_key)
         self.model = config.GROQ_LLM_MODEL
         
         self.system_prompt = (
-            "You are a helpful, concise voice assistant. "
-            "Your responses will be spoken aloud, so keep them brief (1-2 sentences) "
-            "and avoid using markdown or special characters that are hard to pronounce. "
-            "IMPORTANT: The input text might contain transcription errors or random words from background noise. "
-            "If the input seems nonsensical or just random words like 'Hello' repeated, politely ask for clarification or ignore the noise. "
-            "Always respond in English unless the user explicitly speaks another language clearly. Do not speak anything that you get in brackets ()."
+            "You are Mira from DriveX, calling about a Royal Enfield Classic 350. "
+            "Keep responses to 1-2 sentences and avoid special characters. "
+            "The test drive is at our Koramangala office, located at DriveX Niax Motors, "
+            "No. 1004, 80 Feet Road, Koramangala 1st Block, near the Wipro Signal. "
+            "The seller expectation is one lakh forty-five thousand rupees. "
+            "Ask the customer which day and time works best for their test drive. "
+            "Ignore background noise like 'Hello' repetitions. "
+            "DETECT the language (English, Hindi, Tamil, Kannada, or Telugu) from the "
+            "user's first reply and LOCK into that language for the entire call. "
+            "Do not mix languages. If they ask about EMI, say our finance team will help "
+            "during the visit. Do not speak anything in brackets."
         )
         
-        self.greeting = "Hello! I am your AI assistant. How can I help you today?"
+        customer_name = "Danush"
+        vehicle_model = "Royal Enfield Classic 350"
+        self.greeting = f"Hello {customer_name}... This is Mira speaking from DriveX... I am calling regarding your interest in the {vehicle_model} vehicle... The seller has invited you for a free test drive... Can I book the appointment for you sir?"
         self.conversation_history = []
         self.reset_conversation()
 
@@ -37,7 +44,7 @@ class LLMService:
         """Return the initial greeting."""
         return self.greeting
 
-    def generate_response(self, text: str) -> str:
+    async def generate_response(self, text: str) -> str:
         """
         Generate LLM response using Groq.
         
@@ -56,7 +63,7 @@ class LLMService:
         self.conversation_history.append({"role": "user", "content": text})
         
         try:
-            chat_completion = self.client.chat.completions.create(
+            chat_completion = await self.client.chat.completions.create(
                 messages=self.conversation_history,
                 model=self.model,
                 max_tokens=150,

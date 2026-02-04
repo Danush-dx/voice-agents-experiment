@@ -104,7 +104,7 @@ class ScribeService:
         except Exception as e:
             print(f"❌ ScribeService send error: {e}")
 
-    def get_and_clear_transcript(self) -> str:
+    async def get_and_clear_transcript(self) -> str:
         """Return accumulated transcript and clear buffer."""
         # Combine committed history and current partial
         full_text = " ".join(self.committed_text)
