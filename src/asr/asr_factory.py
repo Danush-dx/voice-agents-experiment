@@ -1,5 +1,6 @@
 from .faster_whisper_asr import FasterWhisperASR
 from .whisper_asr import WhisperASR
+from .elevenlabs_asr import ElevenLabsASR
 
 
 class ASRFactory:
@@ -9,5 +10,7 @@ class ASRFactory:
             return WhisperASR(**kwargs)
         if asr_type == "faster_whisper":
             return FasterWhisperASR(**kwargs)
+        if asr_type == "elevenlabs":
+            return ElevenLabsASR(**kwargs)
         else:
             raise ValueError(f"Unknown ASR pipeline type: {asr_type}")

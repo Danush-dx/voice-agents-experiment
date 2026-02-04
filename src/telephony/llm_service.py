@@ -4,6 +4,7 @@ Provides fast inference for voice agent responses.
 """
 import os
 from groq import Groq
+from src.config import config
 
 
 class LLMService:
@@ -11,13 +12,13 @@ class LLMService:
     
     def __init__(self):
         """Initialize Groq client and conversation state."""
-        api_key = os.getenv("GROQ_API_KEY")
+        api_key = config.GROQ_API_KEY
         if not api_key:
             raise ValueError("GROQ_API_KEY environment variable required")
         
-        print(f"🔧 LLMService: Initializing Groq with API key: {api_key[:10]}...")
+        print(f"🔧 LLMService: Initializing Groq with model: {config.GROQ_LLM_MODEL}")
         self.client = Groq(api_key=api_key)
-        self.model = "llama3-8b-8192"
+        self.model = config.GROQ_LLM_MODEL
         
         self.system_prompt = (
             "You are a helpful, concise voice assistant. "

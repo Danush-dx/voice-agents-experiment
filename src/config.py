@@ -1,6 +1,6 @@
 """
 Centralized configuration management for VoiceStreamAI.
-Loads configuration from environment variables and .env file.
+Loads credentials from environment variables and hardcodes model specifications.
 """
 import os
 from pathlib import Path
@@ -33,10 +33,23 @@ class Config:
     VAD_TYPE: str = os.getenv('VAD_TYPE', 'pyannote')
 
     # ASR Configuration
-    ASR_TYPE: str = os.getenv('ASR_TYPE', 'faster_whisper')
+    ASR_TYPE: str = os.getenv('ASR_TYPE', 'elevenlabs')
     ASR_MODEL_SIZE: str = os.getenv('ASR_MODEL_SIZE', 'large-v3')
     ASR_DEVICE: str = os.getenv('ASR_DEVICE', 'cpu')
     ASR_COMPUTE_TYPE: str = os.getenv('ASR_COMPUTE_TYPE', 'int8')
+
+    # ElevenLabs Scribe Configuration (Spec: ElevenLabs Scribe v2 realtime)
+    ELEVENLABS_API_KEY: Optional[str] = os.getenv('ELEVENLABS_API_KEY')
+    ELEVENLABS_STT_MODEL: str = "scribe_v2_realtime"
+
+    # Groq LLM Configuration (Spec: Groq llama-3.1-8b-instant)
+    GROQ_API_KEY: Optional[str] = os.getenv('GROQ_API_KEY')
+    GROQ_LLM_MODEL: str = "llama-3.1-8b-instant"
+
+    # Cartesia TTS Configuration (Spec: Cartesia Sonic 3)
+    CARTESIA_API_KEY: Optional[str] = os.getenv('CARTESIA_API_KEY')
+    CARTESIA_TTS_MODEL: str = "sonic-3"
+    CARTESIA_VOICE_ID: str = "47f3bbb1-e98f-4e0c-92c5-5f0325e1e206"
 
     # SSL Configuration
     SSL_CERTFILE: Optional[str] = os.getenv('SSL_CERTFILE')
@@ -56,12 +69,7 @@ class Config:
             if not cls.HF_TOKEN:
                 raise ValueError("HF_TOKEN is required for PyAnnote VAD. Set it in .env file.")
             return {"auth_token": cls.HF_TOKEN}
-        elif cls.VAD_TYPE == 'silero':
-            return {}
-        elif cls.VAD_TYPE == 'webrtc':
-            return {}
-        else:
-            return {}
+        return {}
 
     @classmethod
     def get_asr_args(cls) -> dict:
@@ -72,42 +80,36 @@ class Config:
                 "device": cls.ASR_DEVICE,
                 "compute_type": cls.ASR_COMPUTE_TYPE
             }
-        else:
-            return {}
+        return {}
 
     @classmethod
     def validate(cls) -> None:
         """Validate required configuration."""
         errors = []
-
         if not cls.BASE_URL:
-            errors.append("BASE_URL is required. Set it in .env file or as environment variable.")
-
-        if cls.VAD_TYPE == 'pyannote' and not cls.HF_TOKEN:
-            errors.append("HF_TOKEN is required for PyAnnote VAD. Set it in .env file.")
-
+            errors.append("BASE_URL is required.")
+        if not cls.ELEVENLABS_API_KEY:
+            errors.append("ELEVENLABS_API_KEY is required.")
+        if not cls.GROQ_API_KEY:
+            errors.append("GROQ_API_KEY is required.")
+        if not cls.CARTESIA_API_KEY:
+            errors.append("CARTESIA_API_KEY is required.")
         if errors:
             raise ValueError(f"Configuration errors:\n" + "\n".join(f"  - {e}" for e in errors))
 
     @classmethod
     def display(cls) -> None:
-        """Display current configuration (hiding sensitive data)."""
+        """Display current configuration."""
         print("\n" + "="*60)
-        print("VoiceStreamAI Configuration")
+        print("VoiceStreamAI Configuration (Agent Spec Active)")
         print("="*60)
         print(f"Server Host:          {cls.HOST}")
         print(f"Server Port:          {cls.PORT}")
         print(f"Base URL:             {cls.BASE_URL}")
-        print(f"VAD Type:             {cls.VAD_TYPE}")
-        print(f"ASR Type:             {cls.ASR_TYPE}")
-        print(f"ASR Model:            {cls.ASR_MODEL_SIZE}")
-        print(f"ASR Device:           {cls.ASR_DEVICE}")
-        print(f"ASR Compute Type:     {cls.ASR_COMPUTE_TYPE}")
-        print(f"HF Token:             {'***' + cls.HF_TOKEN[-4:] if cls.HF_TOKEN else 'Not Set'}")
-        print(f"SSL Enabled:          {'Yes' if cls.SSL_CERTFILE else 'No'}")
+        print(f"STT Model:            {cls.ELEVENLABS_STT_MODEL}")
+        print(f"LLM Model:            {cls.GROQ_LLM_MODEL}")
+        print(f"TTS Model:            {cls.CARTESIA_TTS_MODEL}")
         print(f"Log Level:            {cls.LOG_LEVEL}")
-        print("="*60)
-        print(f"Webhook URL:          {cls.BASE_URL}/api/telephony/answer" if cls.BASE_URL else "Not Set")
         print("="*60 + "\n")
 
 

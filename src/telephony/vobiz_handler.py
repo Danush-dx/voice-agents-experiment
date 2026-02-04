@@ -1,31 +1,39 @@
 """
 Vobiz WebSocket stream handler with complete voice agent loop.
-Flow: TTS greeting → USER speaks → STT → LLM → TTS → USER → (repeat)
+Flow: User Audio -> VAD/Scribe -> LLM -> TTS -> User
 """
 import json
 import uuid
 import asyncio
 import base64
+import audioop
+import time
 from fastapi import WebSocket
 
-from src.client import Client
+from src.config import config
 from src.telephony.audio_converter import AudioConverter
 from src.telephony.llm_service import LLMService
 from src.telephony.tts_service import TTSService
+from src.telephony.scribe_service import ScribeService
+from src.telephony.audio_player import AudioPlayer
 
 
 class VobizStreamHandler:
-    """Handles Vobiz WebSocket streams with voice agent loop."""
+    """Handles Vobiz WebSocket streams with real-time voice agent loop."""
 
     def __init__(self, vad_pipeline, asr_pipeline):
-        """Initialize the handler."""
+        """
+        Initialize the handler.
+        Note: vad_pipeline and asr_pipeline are kept for signature compatibility 
+        but we use local VAD and ScribeService.
+        """
         self.vad_pipeline = vad_pipeline
         self.asr_pipeline = asr_pipeline
 
     async def handle_stream(self, websocket: WebSocket):
-        """Handle Vobiz WebSocket stream with full conversation loop."""
+        """Handle Vobiz WebSocket stream."""
         print("=" * 60)
-        print("VOICE AGENT STARTED")
+        print(f"VOICE AGENT STARTED ({config.ELEVENLABS_STT_MODEL}+{config.GROQ_LLM_MODEL}+{config.CARTESIA_TTS_MODEL})")
         print("=" * 60)
         
         try:
@@ -37,20 +45,28 @@ class VobizStreamHandler:
 
         # Initialize services
         converter = AudioConverter()
+        audio_player = AudioPlayer(websocket)
         
         try:
             llm_service = LLMService()
             tts_service = TTSService()
-            print("✅ LLM and TTS services ready")
+            scribe_service = ScribeService()
+            
+            # Connect to Scribe Realtime
+            await scribe_service.connect()
+            
+            print("✅ All services ready")
         except Exception as e:
             print(f"❌ Service init failed: {e}")
             return
 
-        # Conversation state
-        audio_buffer = bytearray()
-        is_speaking = False
+        # VAD & Conversation State
+        is_user_speaking = False
         silence_frames = 0
-        SILENCE_THRESHOLD = 25  # ~500ms
+        SILENCE_THRESHOLD = 25  # ~500ms (20ms per frame)
+        ENERGY_THRESHOLD = 300  # RMS threshold
+        
+        packet_count = 0
 
         try:
             while True:
@@ -63,94 +79,80 @@ class VobizStreamHandler:
 
                 elif event == "start":
                     print("🎙️ Stream STARTED")
-                    
-                    # Play greeting - fire and forget
+                    # Initial Greeting
                     greeting = llm_service.get_greeting()
+                    print(f"🤖 Greeting: {greeting}")
                     audio = tts_service.synthesize(greeting)
                     if audio:
-                        asyncio.create_task(self._send_audio(websocket, audio))
-                        print("✅ Greeting queued")
+                        await audio_player.play_audio(audio)
 
                 elif event == "media":
+                    packet_count += 1
                     media = message.get("media", {})
                     payload = media.get("payload")
                     if not payload:
                         continue
                     
-                    # Convert audio
+                    # 1. Convert Audio (µ-law -> PCM)
                     pcm = converter.convert(payload)
                     
-                    # Energy-based VAD
-                    energy = sum(abs(b - 128) for b in pcm[:100]) / 100
+                    # 2. Feed Scribe STT
+                    await scribe_service.send_audio(pcm)
                     
-                    if energy > 8:
-                        is_speaking = True
-                        silence_frames = 0
-                        audio_buffer.extend(pcm)
-                    elif is_speaking:
-                        silence_frames += 1
-                        audio_buffer.extend(pcm)
-                        
-                        if silence_frames >= SILENCE_THRESHOLD:
-                            if len(audio_buffer) > 16000:
-                                print(f"🎤 Processing {len(audio_buffer)} bytes...")
-                                
-                                # Transcribe
-                                text = await self._transcribe(bytes(audio_buffer))
-                                if text and text.strip():
-                                    print(f"📝 User: '{text}'")
-                                    
-                                    # LLM
-                                    response = llm_service.generate_response(text)
-                                    print(f"🤖 Agent: '{response}'")
-                                    
-                                    # TTS - fire and forget
-                                    audio = tts_service.synthesize(response)
-                                    if audio:
-                                        asyncio.create_task(self._send_audio(websocket, audio))
+                    # 3. VAD / Barge-in Logic
+                    energy = audioop.rms(pcm, 2)
+                    
+                    if energy > ENERGY_THRESHOLD:
+                        if not is_user_speaking:
+                            print(f"🎤 User started speaking (Energy: {energy})")
+                            is_user_speaking = True
                             
-                            audio_buffer.clear()
-                            is_speaking = False
+                            # BARGE-IN: Stop agent if speaking
+                            if audio_player.is_playing:
+                                audio_player.stop()
+                        
+                        silence_frames = 0
+                        
+                    elif is_user_speaking:
+                        silence_frames += 1
+                        
+                        # End of turn detection
+                        if silence_frames >= SILENCE_THRESHOLD:
+                            print("🔇 Silence detected - End of turn")
+                            is_user_speaking = False
                             silence_frames = 0
+                            
+                            # Get transcript from Scribe
+                            user_text = scribe_service.get_and_clear_transcript()
+                            
+                            if user_text:
+                                print(f"📝 User Said: '{user_text}'")
+                                
+                                # Generate Response (LLM)
+                                response = llm_service.generate_response(user_text)
+                                print(f"🤖 Agent Responding: '{response}'")
+                                
+                                # Synthesize (TTS)
+                                tts_audio = tts_service.synthesize(response)
+                                
+                                # Play Audio
+                                if tts_audio:
+                                    await audio_player.play_audio(tts_audio)
+                            else:
+                                print("⚠️ No transcript received yet")
 
                 elif event == "stop":
                     print("🛑 Stream stopped")
                     break
 
         except Exception as e:
-            # 1000 is normal close, ignore it
-            if "1000" not in str(e):
-                print(f"❌ Error: {e}")
+            if "1000" not in str(e) and "1001" not in str(e):
+                print(f"❌ Error in handle_stream: {e}")
+                import traceback
+                traceback.print_exc()
 
         finally:
             print("📴 Call ended")
+            await scribe_service.close()
             llm_service.reset_conversation()
-
-    async def _send_audio(self, ws: WebSocket, audio: bytes):
-        """Send audio to Vobiz without blocking."""
-        try:
-            chunk_size = 320
-            for i in range(0, len(audio), chunk_size):
-                chunk = audio[i:i + chunk_size]
-                await ws.send_text(json.dumps({
-                    "event": "playAudio",
-                    "media": {
-                        "contentType": "audio/x-l16",
-                        "sampleRate": 8000,
-                        "payload": base64.b64encode(chunk).decode()
-                    }
-                }))
-            print(f"✅ Sent {len(audio)} bytes")
-        except Exception as e:
-            print(f"❌ Send error: {e}")
-
-    async def _transcribe(self, audio: bytes) -> str:
-        """Transcribe audio."""
-        try:
-            client = Client(client_id="temp", sampling_rate=16000, samples_width=2)
-            client.scratch_buffer = bytearray(audio)
-            result = await self.asr_pipeline.transcribe(client)
-            return result.get("text", "")
-        except Exception as e:
-            print(f"❌ ASR error: {e}")
-            return ""
+            audio_player.stop()

@@ -4,6 +4,7 @@ Provides text-to-speech using sonic model.
 """
 import os
 from cartesia import Cartesia
+from src.config import config
 
 
 class TTSService:
@@ -11,14 +12,14 @@ class TTSService:
     
     def __init__(self):
         """Initialize Cartesia client."""
-        api_key = os.getenv("CARTESIA_API_KEY")
+        api_key = config.CARTESIA_API_KEY
         if not api_key:
             raise ValueError("CARTESIA_API_KEY environment variable required")
         
-        print(f"🔧 TTSService: Initializing Cartesia with API key: {api_key[:10]}...")
+        print(f"🔧 TTSService: Initializing Cartesia with model: {config.CARTESIA_TTS_MODEL}")
         self.client = Cartesia(api_key=api_key)
-        self.model_id = "sonic-2"
-        self.voice_id = "47f3bbb1-e98f-4e0c-92c5-5f0325e1e206"  # Neha voice
+        self.model_id = config.CARTESIA_TTS_MODEL
+        self.voice_id = config.CARTESIA_VOICE_ID
         print(f"✅ TTSService: Initialized with model={self.model_id}, voice={self.voice_id}")
     
     def synthesize(self, text: str) -> bytes:
