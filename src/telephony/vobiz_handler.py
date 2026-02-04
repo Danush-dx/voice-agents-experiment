@@ -122,18 +122,35 @@ class VobizStreamHandler:
                             is_user_speaking = False
                             silence_frames = 0
                             
-                            # Get transcript from Scribe
+                            rtt_start = time.perf_counter()
+                            
+                            # 1. Get transcript from Scribe
+                            stt_start = time.perf_counter()
                             user_text = scribe_service.get_and_clear_transcript()
+                            stt_latency = (time.perf_counter() - stt_start) * 1000
                             
                             if user_text:
                                 print(f"📝 User Said: '{user_text}'")
                                 
-                                # Generate Response (LLM)
+                                # 2. Generate Response (LLM)
+                                llm_start = time.perf_counter()
                                 response = llm_service.generate_response(user_text)
+                                llm_latency = (time.perf_counter() - llm_start) * 1000
                                 print(f"🤖 Agent Responding: '{response}'")
                                 
-                                # Synthesize (TTS)
+                                # 3. Synthesize (TTS)
+                                tts_start = time.perf_counter()
                                 tts_audio = tts_service.synthesize(response)
+                                tts_latency = (time.perf_counter() - tts_start) * 1000
+                                
+                                # 4. Calculate Total RTT
+                                rtt_total = (time.perf_counter() - rtt_start) * 1000
+                                
+                                print(f"⏱️  LATENCY METRICS:")
+                                print(f"   - STT Delay: {stt_latency:.2f}ms")
+                                print(f"   - LLM Time:  {llm_latency:.2f}ms")
+                                print(f"   - TTS Time:  {tts_latency:.2f}ms")
+                                print(f"   - Total RTT: {rtt_total:.2f}ms")
                                 
                                 # Play Audio
                                 if tts_audio:
