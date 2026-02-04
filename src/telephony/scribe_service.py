@@ -21,11 +21,11 @@ class ScribeService:
         
         self.client = ElevenLabs(api_key=api_key)
         self.connection = None
-        self.current_transcript = []
+        
+        self.committed_text = []
+        self.partial_text = ""
+        
         self.is_connected = False
-        # We don't need a manual receiver task if using 'on' handlers, 
-        # but we might need to keep the connection alive or processing. 
-        # The SDK likely runs a background task for the websocket.
 
     async def connect(self):
         """Establish WebSocket connection to Scribe."""
@@ -42,8 +42,8 @@ class ScribeService:
             self.connection = await self.client.speech_to_text.realtime.connect(options)
             
             # Register Event Handlers
-            self.connection.on(RealtimeEvents.PARTIAL_TRANSCRIPT, self._on_transcript)
-            self.connection.on(RealtimeEvents.COMMITTED_TRANSCRIPT, self._on_transcript)
+            self.connection.on(RealtimeEvents.PARTIAL_TRANSCRIPT, self._on_partial)
+            self.connection.on(RealtimeEvents.COMMITTED_TRANSCRIPT, self._on_committed)
             self.connection.on(RealtimeEvents.ERROR, self._on_error)
             self.connection.on(RealtimeEvents.CLOSE, self._on_close)
             
@@ -55,21 +55,34 @@ class ScribeService:
             self.is_connected = False
             raise
 
-    def _on_transcript(self, event):
-        """Handle transcript events."""
-        # Check event structure. It's likely an object with 'text'.
+    def _on_partial(self, event):
+        """Handle partial transcript events."""
         try:
-            text = ""
-            if hasattr(event, 'text'):
-                text = event.text
-            elif isinstance(event, dict):
-                text = event.get('text', '')
-            
+            text = self._extract_text(event)
             if text:
-                print(f"📝 Scribe: {text}")
-                self.current_transcript.append(text)
+                self.partial_text = text
+                # print(f"📝 Scribe Partial: {text}")
         except Exception as e:
-            print(f"❌ Error processing transcript event: {e}")
+            print(f"❌ Error processing partial: {e}")
+
+    def _on_committed(self, event):
+        """Handle committed transcript events."""
+        try:
+            text = self._extract_text(event)
+            if text:
+                self.committed_text.append(text)
+                self.partial_text = "" # Reset partial as it's now committed
+                print(f"📝 Scribe Committed: {text}")
+        except Exception as e:
+            print(f"❌ Error processing committed: {e}")
+
+    def _extract_text(self, event):
+        """Helper to extract text from event object."""
+        if hasattr(event, 'text'):
+            return event.text
+        elif isinstance(event, dict):
+            return event.get('text', '')
+        return ""
 
     def _on_error(self, event):
         print(f"❌ Scribe Error Event: {event}")
@@ -86,16 +99,24 @@ class ScribeService:
         try:
             # Base64 encode
             b64_audio = base64.b64encode(pcm_bytes).decode("utf-8")
-            # Send as JSON payload per help docs
+            # Send as JSON payload
             await self.connection.send({"audio_base_64": b64_audio})
         except Exception as e:
             print(f"❌ ScribeService send error: {e}")
 
     def get_and_clear_transcript(self) -> str:
         """Return accumulated transcript and clear buffer."""
-        # Join with space and clear
-        full_text = " ".join(self.current_transcript).strip()
-        self.current_transcript = []
+        # Combine committed history and current partial
+        full_text = " ".join(self.committed_text)
+        if self.partial_text:
+             full_text += " " + self.partial_text
+        
+        full_text = full_text.strip()
+        
+        # Clear buffers
+        self.committed_text = []
+        self.partial_text = ""
+        
         return full_text
 
     async def close(self):

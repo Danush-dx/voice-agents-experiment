@@ -23,7 +23,10 @@ class LLMService:
         self.system_prompt = (
             "You are a helpful, concise voice assistant. "
             "Your responses will be spoken aloud, so keep them brief (1-2 sentences) "
-            "and avoid using markdown or special characters that are hard to pronounce."
+            "and avoid using markdown or special characters that are hard to pronounce. "
+            "IMPORTANT: The input text might contain transcription errors or random words from background noise. "
+            "If the input seems nonsensical or just random words like 'Hello' repeated, politely ask for clarification or ignore the noise. "
+            "Always respond in English unless the user explicitly speaks another language clearly. Do not speak anything that you get in brackets ()."
         )
         
         self.greeting = "Hello! I am your AI assistant. How can I help you today?"
