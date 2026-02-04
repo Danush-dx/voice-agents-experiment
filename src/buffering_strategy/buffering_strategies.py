@@ -77,10 +77,8 @@ class SilenceAtEndOfChunk(BufferingStrategyInterface):
         )
         if len(self.client.buffer) > chunk_length_in_bytes:
             if self.processing_flag:
-                exit(
-                    "Error in realtime processing: tried processing a new "
-                    "chunk while the previous one was still being processed"
-                )
+                # Skip this chunk if still processing previous one
+                return
 
             self.client.scratch_buffer += self.client.buffer
             self.client.buffer.clear()
@@ -123,7 +121,7 @@ class SilenceAtEndOfChunk(BufferingStrategyInterface):
                 end = time.time()
                 transcription["processing_time"] = end - start
                 json_transcription = json.dumps(transcription)
-                await websocket.send(json_transcription)
+                await websocket.send_text(json_transcription)
             self.client.scratch_buffer.clear()
             self.client.increment_file_counter()
 
