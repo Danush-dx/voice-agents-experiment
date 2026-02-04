@@ -84,7 +84,7 @@ class VobizStreamHandler:
 
                             # Feed to client and process
                             client.append_audio_data(pcm_16khz)
-                            await client.process_audio(websocket, self.vad_pipeline, self.asr_pipeline)
+                            client.process_audio(websocket, self.vad_pipeline, self.asr_pipeline)
 
                         except Exception as e:
                             logger.error(f"Audio conversion error: {e}, client_id={client_id}")
