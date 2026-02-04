@@ -62,9 +62,13 @@ class GroqSTTService:
         try:
             print(f"🎙️ GroqSTTService: Transcribing {audio_size} bytes...")
             
+            # Context prompt to guide the model towards Indian languages
+            prompt_text = "Conversation regarding a vehicle test drive appointment in India. Languages: English, Hindi, Tamil, Kannada, Telugu. The user might switch languages."
+            
             transcription = await self.client.audio.transcriptions.create(
                 file=wav_io,
                 model=self.model,
+                prompt=prompt_text,
                 response_format="json",
             )
             

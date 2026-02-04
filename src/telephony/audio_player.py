@@ -61,13 +61,34 @@ class AudioPlayer:
             self.current_task = None
 
     async def _consume_stream(self, audio_generator):
-        """Consume audio generator and stream chunks."""
+        """Consume audio generator and stream chunks with buffering."""
+        buffer = bytearray()
         try:
             for chunk in audio_generator:
                 if not self.is_playing:
                     break
-                # Process each chunk received from TTS
-                await self._stream_audio_chunk(chunk)
+                
+                buffer.extend(chunk)
+                
+                # Process complete chunks from buffer
+                while len(buffer) >= self.chunk_size:
+                    if not self.is_playing:
+                        break
+                        
+                    # Extract one chunk
+                    chunk_to_send = buffer[:self.chunk_size]
+                    del buffer[:self.chunk_size]
+                    
+                    await self._send_single_chunk(chunk_to_send)
+            
+            # Process remaining bytes if they form a complete sample (multiple of 2)
+            if self.is_playing and len(buffer) > 0:
+                # Ensure we have an even number of bytes for 16-bit PCM
+                if len(buffer) % 2 != 0:
+                    buffer = buffer[:-1]  # Drop last byte if incomplete sample
+                
+                if len(buffer) > 0:
+                    await self._send_single_chunk(buffer)
             
             if self.is_playing:
                 print("✅ AudioPlayer: Finished streaming")
@@ -75,20 +96,14 @@ class AudioPlayer:
             print("🛑 AudioPlayer: Stream Task Cancelled")
         except Exception as e:
             print(f"❌ AudioPlayer stream error: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
             self.is_playing = False
 
-    async def _stream_audio_chunk(self, audio_bytes: bytes):
-        """Stream a single larger chunk by breaking it into smaller packets."""
-        if not audio_bytes:
-            return
-            
-        for i in range(0, len(audio_bytes), self.chunk_size):
-            if not self.is_playing:
-                break
-                
-            chunk = audio_bytes[i:i + self.chunk_size]
-            
+    async def _send_single_chunk(self, chunk: bytes):
+        """Convert and send a single PCM chunk."""
+        try:
             # Convert 16-bit Linear PCM to 8-bit µ-law
             mulaw_chunk = audioop.lin2ulaw(chunk, 2)
             
@@ -104,8 +119,16 @@ class AudioPlayer:
             
             await self.websocket.send_text(json.dumps(event))
             
-            # Pace to real-time (20ms per chunk)
-            await asyncio.sleep(0.018)
+            # Pace to real-time (20ms per chunk is ideal, slightly faster to avoid underrun)
+            # 320 bytes / 2 bytes/sample / 8000 samples/sec = 0.02s = 20ms
+            await asyncio.sleep(0.018) 
+        except Exception as e:
+            print(f"❌ Error sending chunk: {e}")
+            raise e
+
+    async def _stream_audio_chunk(self, audio_bytes: bytes):
+        """Deprecated: Use _consume_stream buffering logic instead."""
+        pass 
 
     async def _stream_audio(self, audio_bytes: bytes):
         """Internal method to stream audio chunks."""
@@ -114,18 +137,8 @@ class AudioPlayer:
         
         print(f"🔊 AudioPlayer: Converting {len(audio_bytes)} PCM bytes to µ-law and sending...")
         
-        chunk_count = 0
-        try:
-            await self._stream_audio_chunk(audio_bytes)
+        # Reuse the buffering logic by simulating a generator
+        async def byte_generator():
+            yield audio_bytes
             
-            if self.is_playing:
-                print(f"✅ AudioPlayer: Finished sending audio")
-            else:
-                print(f"🛑 AudioPlayer: Interrupted")
-            
-        except asyncio.CancelledError:
-            print("🛑 AudioPlayer: Task Cancelled")
-        except Exception as e:
-            print(f"❌ AudioPlayer error: {e}")
-        finally:
-            self.is_playing = False
+        await self._consume_stream(byte_generator())

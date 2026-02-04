@@ -92,13 +92,15 @@ class TTSService:
                 }
             )
             
+            chunk_count = 0
             for chunk in audio_generator:
                 if chunk:
+                    chunk_count += 1
                     yield chunk
             
-            print(f"✅ TTSService: Streaming complete")
+            print(f"✅ TTSService: Streaming complete ({chunk_count} chunks)")
             
         except Exception as e:
-            print(f"❌ TTSService error: {e}")
+            print(f"❌ TTSService error during streaming: {e}")
             import traceback
             traceback.print_exc()

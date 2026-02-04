@@ -51,7 +51,7 @@ class Config:
     # Cartesia TTS Configuration (Spec: Cartesia Sonic 3)
     CARTESIA_API_KEY: Optional[str] = os.getenv('CARTESIA_API_KEY')
     CARTESIA_TTS_MODEL: str = "sonic-3"
-    CARTESIA_VOICE_ID: str = "829ccd10-f8b3-43cd-b8a0-4aeaa81f3b30"
+    CARTESIA_VOICE_ID: str = "47f3bbb1-e98f-4e0c-92c5-5f0325e1e206"
 
     # SSL Configuration
     SSL_CERTFILE: Optional[str] = os.getenv('SSL_CERTFILE')
