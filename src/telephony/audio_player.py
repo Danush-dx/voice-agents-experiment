@@ -122,7 +122,12 @@ class AudioPlayer:
             # Pace to real-time (20ms per chunk is ideal, slightly faster to avoid underrun)
             # 320 bytes / 2 bytes/sample / 8000 samples/sec = 0.02s = 20ms
             await asyncio.sleep(0.018) 
-        except Exception as e:
+        except (RuntimeError, Exception) as e:
+            # RuntimeError is often raised by Starlette if connection is closed
+            if "disconnect" in str(e).lower() or "close" in str(e).lower():
+                self.is_playing = False
+                # Quietly stop
+                return
             print(f"❌ Error sending chunk: {e}")
             raise e
 

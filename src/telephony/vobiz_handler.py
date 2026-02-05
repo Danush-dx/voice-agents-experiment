@@ -70,10 +70,48 @@ class VobizStreamHandler:
         # VAD & Conversation State
         is_user_speaking = False
         silence_frames = 0
-        SILENCE_THRESHOLD = 25  # ~500ms (20ms per frame)
-        ENERGY_THRESHOLD = 1000  # RMS threshold
+        SILENCE_THRESHOLD = 25  # ~500ms
+        ENERGY_THRESHOLD = 1500
         
         packet_count = 0
+        current_turn_task = None
+
+        # Hallucination phrases
+        HALLUCINATIONS = [
+            "vielen dank", "thank you for watching", "sous-titres", 
+            "amara.org", "mbc", "subtitles"
+        ]
+
+        async def process_turn(text, stt_latency, rtt_start):
+            """Handle the LLM generation and TTS streaming in background."""
+            try:
+                # 2. Generate Response (LLM)
+                llm_start = time.perf_counter()
+                response = await llm_service.generate_response(text)
+                llm_latency = (time.perf_counter() - llm_start) * 1000
+                print(f"🤖 Agent Responding: '{response}'")
+                
+                # 3. Stream Synthesis (TTS)
+                tts_start = time.perf_counter()
+                tts_stream = tts_service.synthesize_stream(response)
+                tts_latency = (time.perf_counter() - tts_start) * 1000
+                
+                # 4. Calculate Total TTFB
+                rtt_total = (time.perf_counter() - rtt_start) * 1000
+                
+                print(f"⏱️  LATENCY METRICS:")
+                print(f"   - STT Delay: {stt_latency:.2f}ms")
+                print(f"   - LLM Time:  {llm_latency:.2f}ms")
+                print(f"   - TTS Init:  {tts_latency:.2f}ms")
+                print(f"   - Total TTFB: {rtt_total:.2f}ms")
+                
+                # Stream Audio
+                if tts_stream:
+                    await audio_player.stream_audio(tts_stream)
+            except asyncio.CancelledError:
+                print("🛑 Turn processing cancelled")
+            except Exception as e:
+                print(f"❌ Error in process_turn: {e}")
 
         try:
             while True:
@@ -86,11 +124,8 @@ class VobizStreamHandler:
 
                 elif event == "start":
                     print("🎙️ Stream STARTED")
-                    # Initial Greeting
                     greeting = llm_service.get_greeting()
                     print(f"🤖 Greeting: {greeting}")
-                    
-                    # Stream greeting
                     tts_stream = tts_service.synthesize_stream(greeting)
                     if tts_stream:
                         await audio_player.stream_audio(tts_stream)
@@ -102,13 +137,9 @@ class VobizStreamHandler:
                     if not payload:
                         continue
                     
-                    # 1. Convert Audio (µ-law -> PCM)
                     pcm = converter.convert(payload)
-                    
-                    # 2. Feed STT service
                     await stt_service.send_audio(pcm)
                     
-                    # 3. VAD / Barge-in Logic
                     energy = audioop.rms(pcm, 2)
                     
                     if energy > ENERGY_THRESHOLD:
@@ -116,56 +147,47 @@ class VobizStreamHandler:
                             print(f"🎤 User started speaking (Energy: {energy})")
                             is_user_speaking = True
                             
-                            # BARGE-IN: Stop agent if speaking
+                            # BARGE-IN: Cancel everything
                             if audio_player.is_playing:
                                 audio_player.stop()
+                            
+                            if current_turn_task and not current_turn_task.done():
+                                print("🛑 Cancelling active LLM/TTS task")
+                                current_turn_task.cancel()
                         
                         silence_frames = 0
                         
                     elif is_user_speaking:
                         silence_frames += 1
                         
-                        # End of turn detection
                         if silence_frames >= SILENCE_THRESHOLD:
                             print("🔇 Silence detected - End of turn")
                             is_user_speaking = False
                             silence_frames = 0
                             
                             rtt_start = time.perf_counter()
-                            
-                            # 1. Get transcript from STT
                             stt_start = time.perf_counter()
                             user_text = await stt_service.get_and_clear_transcript()
                             stt_latency = (time.perf_counter() - stt_start) * 1000
                             
-                            if user_text:
-                                print(f"📝 User Said: '{user_text}'")
-                                
-                                # 2. Generate Response (LLM)
-                                llm_start = time.perf_counter()
-                                response = await llm_service.generate_response(user_text)
-                                llm_latency = (time.perf_counter() - llm_start) * 1000
-                                print(f"🤖 Agent Responding: '{response}'")
-                                
-                                # 3. Stream Synthesis (TTS)
-                                tts_start = time.perf_counter()
-                                tts_stream = tts_service.synthesize_stream(response)
-                                tts_latency = (time.perf_counter() - tts_start) * 1000
-                                
-                                # 4. Calculate Initial Latency (TTFB)
-                                rtt_total = (time.perf_counter() - rtt_start) * 1000
-                                
-                                print(f"⏱️  LATENCY METRICS:")
-                                print(f"   - STT Delay: {stt_latency:.2f}ms")
-                                print(f"   - LLM Time:  {llm_latency:.2f}ms")
-                                print(f"   - TTS Init:  {tts_latency:.2f}ms")
-                                print(f"   - Total TTFB: {rtt_total:.2f}ms")
-                                
-                                # Stream Audio
-                                if tts_stream:
-                                    await audio_player.stream_audio(tts_stream)
+                            # Filter Hallucinations
+                            is_hallucination = False
+                            if not user_text or len(user_text) < 2:
+                                is_hallucination = True
                             else:
-                                print("⚠️ No transcript received yet")
+                                lower_text = user_text.lower()
+                                for phrase in HALLUCINATIONS:
+                                    if phrase in lower_text:
+                                        print(f"⚠️ Ignored hallucination: '{user_text}'")
+                                        is_hallucination = True
+                                        break
+                            
+                            if user_text and not is_hallucination:
+                                print(f"📝 User Said: '{user_text}'")
+                                # Launch turn processing in background
+                                current_turn_task = asyncio.create_task(process_turn(user_text, stt_latency, rtt_start))
+                            else:
+                                print("⚠️ No valid transcript received")
 
                 elif event == "stop":
                     print("🛑 Stream stopped")
