@@ -77,13 +77,21 @@ class LLMService:
             f"Current Day of Week: {current_day_of_week}.\n"
             f"Current Time: {current_time}.\n"
             "INSTRUCTIONS:\n"
-            "1. Speak naturally with a South Indian English accent (use 'only', 'itself', 'vill' for will).\n"
-            "2. Keep responses SHORT (1-2 sentences max).\n"
-            "3. LANGUAGE SWITCHING: DEFAULT TO ENGLISH. Only switch to Hindi/Tamil/Kannada/Telugu if the user speaks a COMPLETE phrase in that language. If unsure, speak English.\n"
-            "4. NEVER mix languages. Do not say 'Hindi. Aap kaise hain'. Just say 'Aap kaise hain'.\n"
-            "5. CALL FLOW: Ask for Day -> Ask for Time -> Share Price -> Get Buyer Offer.\n"
-            "6. IGNORE background noise or short mumbles.\n"
-            "7. If asked about EMI, say finance team will help at the center."
+            "1. You are Mira, a friendly and human-like agent. Treat the user as a friend, not a checklist.\n"
+            "2. You have ALREADY introduced yourself in the greeting. DO NOT say 'Hello', 'Hi', or your name again at the start of your response. Just answer the user directly.\n"
+            "3. Speak naturally with a gentle South Indian English accent (use 'only', 'itself' occasionally, but keep it subtle).\n"
+            "4. Keep responses SHORT (1-2 sentences max). Be concise.\n"
+            "5. If the user asks 'When can I come?', immediately offer the specific available slots (e.g., 'We have slots on Monday at 10 AM or Tuesday at 9 AM. Which works for you?'). Do not ask vague questions like 'Which day you prefer?'.\n"
+            "6. LANGUAGE SWITCHING & SUPPORTED LANGUAGES:\n"
+            "   - You MUST support: English, Hindi, Tamil, Kannada, and Telugu.\n"
+            "   - DETECT the user's language based on their input text.\n"
+            "   - IF user speaks Hindi -> Reply in HINDI.\n"
+            "   - IF user speaks Tamil -> Reply in TAMIL.\n"
+            "   - IF user speaks Kannada -> Reply in KANNADA.\n"
+            "   - IF user speaks Telugu -> Reply in TELUGU.\n"
+            "   - IF user speaks English -> Reply in ENGLISH.\n"
+            "   - SWITCH IMMEDIATELY. Do not ask 'Should I speak in Tamil?'. Just do it.\n"
+            "7. IGNORE background noise.\n"
         )
 
         self.greeting = f"Hello {customer_name}... This is Mira speaking from DriveX... I am calling regarding your interest in the {vehicle_model} vehicle... The seller has invited you for a free test drive... Can I book the appointment for you sir?"
@@ -94,23 +102,49 @@ class LLMService:
         """Return the initial greeting."""
         return self.greeting
 
-    async def generate_response(self, text: str) -> str:
+    async def generate_response(self, text: str, language: str = "en") -> str:
         """
         Generate LLM response using Groq (Non-streaming).
+        
+        Args:
+            text: User input text
+            language: Target language code (en, hi, ta, te, kn)
         """
         if not text or not text.strip():
             return ""
 
-        print(f"🤖 LLMService: Generating response for: '{text}'")
+        print(f"🤖 LLMService: Generating response for: '{text}' in '{language}'")
         
         # Add user message to history
         self.conversation_history.append({"role": "user", "content": text})
+        
+        # Temporary system instruction for this turn to enforce language
+        # We append it as a user message or system message just for this turn?
+        # Better: We rely on the system prompt we set initially + a "Reply in X" hint if needed.
+        # But `reset_conversation` sets the static system prompt.
+        # Let's add a transient system instruction.
+        
+        language_map = {
+            "en": "English",
+            "hi": "Hindi",
+            "ta": "Tamil",
+            "te": "Telugu",
+            "kn": "Kannada"
+        }
+        target_lang_name = language_map.get(language, "English")
+        
+        # Create a shallow copy of history to inject the language instruction
+        messages = list(self.conversation_history)
+        messages.append({
+            "role": "system", 
+            "content": f"IMPORTANT: User is speaking {target_lang_name}. REPLY ONLY IN {target_lang_name}."
+        })
         
         try:
             # Add timeout to prevent hangs
             chat_completion = await asyncio.wait_for(
                 self.client.chat.completions.create(
-                    messages=self.conversation_history,
+                    messages=messages,
                     model=self.model,
                     max_tokens=200,
                     temperature=0.4,
@@ -171,6 +205,7 @@ class LLMService:
     def reset_conversation(self):
         """Reset the conversation history."""
         self.conversation_history = [
-            {"role": "system", "content": self.system_prompt}
+            {"role": "system", "content": self.system_prompt},
+            {"role": "assistant", "content": self.greeting}
         ]
         print("🔄 LLMService: Conversation history reset")

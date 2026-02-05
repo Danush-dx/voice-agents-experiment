@@ -29,10 +29,10 @@ except ImportError as e:
     sys.exit(1)
 
 # Audio Configuration
-SAMPLE_RATE_MIC = 16000
-SAMPLE_RATE_NET = 8000
+SAMPLE_RATE_MIC = 8000   # Changed to 8000 to match Network
+SAMPLE_RATE_NET = 8000   # Network (Vobiz) rate
 CHANNELS = 1
-BLOCK_SIZE = 1024
+BLOCK_SIZE = 512         # Reduced block size for 8k
 
 # Queues
 mic_queue = queue.Queue()
@@ -43,7 +43,7 @@ class VoiceClient:
         self.url = url
         self.running = True
         self.ws = None
-        self.resample_state = None
+        # self.resample_state = None # No longer needed
         
         # State Flags
         self.greeting_active = True  # Start muted
@@ -55,11 +55,6 @@ class VoiceClient:
             print(f"⚠️ Audio status: {status}", file=sys.stderr)
 
         # --- MICROPHONE INPUT ---
-        # Logic: Mute mic ONLY if greeting_active is True.
-        # Once greeting finishes, we never mute again (unless we want to add half-duplex later).
-        
-        # Check if we should switch off greeting mode?
-        # If we have received audio, and now the queue is empty, greeting is done.
         if self.greeting_active and self.has_received_audio and spk_queue.empty():
             self.greeting_active = False
             print("\n🎙️  Listening... (You can speak now)", file=sys.stderr)
@@ -72,7 +67,7 @@ class VoiceClient:
         # --- SPEAKER OUTPUT ---
         try:
             data_to_play = bytearray()
-            needed_bytes = frames * 2 # 16-bit target for queue
+            needed_bytes = frames * 2 # 16-bit target
             
             while len(data_to_play) < needed_bytes:
                 try:
@@ -99,8 +94,6 @@ class VoiceClient:
 
     async def send_audio_loop(self):
         """Consume mic queue, convert, and send to WebSocket."""
-        # print("Debug: Send loop started")
-        
         while self.running:
             if mic_queue.empty():
                 await asyncio.sleep(0.01)
@@ -109,8 +102,7 @@ class VoiceClient:
             try:
                 indata = mic_queue.get_nowait()
                 
-                # --- NOISE GATE (Light) ---
-                # Keep a light gate to prevent hiss
+                # --- NOISE GATE ---
                 rms = np.sqrt(np.mean(indata**2))
                 if rms < 0.02: 
                      indata.fill(0)
@@ -118,13 +110,10 @@ class VoiceClient:
                 # Convert to bytes (16-bit PCM)
                 pcm_bytes = (indata * 32767).astype(np.int16).tobytes()
                 
-                # Resample 16k -> 8k
-                pcm_8k, self.resample_state = audioop.ratecv(
-                    pcm_bytes, 2, 1, SAMPLE_RATE_MIC, SAMPLE_RATE_NET, self.resample_state
-                )
+                # No Resampling needed (8k -> 8k)
                 
                 # Convert to µ-law
-                mulaw_bytes = audioop.lin2ulaw(pcm_8k, 2)
+                mulaw_bytes = audioop.lin2ulaw(pcm_bytes, 2)
                 
                 payload = base64.b64encode(mulaw_bytes).decode('utf-8')
                 
@@ -147,7 +136,6 @@ class VoiceClient:
 
     async def receive_audio_loop(self):
         """Receive WebSocket messages and play audio."""
-        # print("Debug: Receive loop started")
         try:
             async for message in self.ws:
                 try:
@@ -158,15 +146,13 @@ class VoiceClient:
                         media = data.get("media", {})
                         payload = media.get("payload")
                         if payload:
-                            self.has_received_audio = True # Mark that we started receiving
+                            self.has_received_audio = True
                             
                             mulaw_bytes = base64.b64decode(payload)
                             pcm_8k = audioop.ulaw2lin(mulaw_bytes, 2)
-                            # Upsample 8k -> 16k
-                            pcm_16k, _ = audioop.ratecv(
-                                pcm_8k, 2, 1, SAMPLE_RATE_NET, SAMPLE_RATE_MIC, None
-                            )
-                            spk_queue.put(pcm_16k)
+                            
+                            # No Resampling needed (8k -> 8k)
+                            spk_queue.put(pcm_8k)
                             
                     elif event == "mark":
                         pass

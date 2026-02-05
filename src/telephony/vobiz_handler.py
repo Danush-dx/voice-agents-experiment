@@ -17,6 +17,7 @@ from src.telephony.tts_service import TTSService
 from src.telephony.scribe_service import ScribeService
 from src.telephony.groq_stt_service import GroqSTTService
 from src.telephony.audio_player import AudioPlayer
+from src.telephony.language_detector import LanguageDetector
 
 
 class VobizStreamHandler:
@@ -52,6 +53,7 @@ class VobizStreamHandler:
         try:
             llm_service = LLMService()
             tts_service = TTSService()
+            lang_detector = LanguageDetector()
             
             # Select STT Service
             if config.ASR_TYPE == "groq":
@@ -85,15 +87,21 @@ class VobizStreamHandler:
         async def process_turn(text, stt_latency, rtt_start):
             """Handle the LLM generation and TTS streaming in background."""
             try:
+                # 1.5 Detect Language
+                detect_start = time.perf_counter()
+                detected_lang = await lang_detector.detect_language(text)
+                detect_latency = (time.perf_counter() - detect_start) * 1000
+                print(f"🌍 Language Detected: '{detected_lang}' ({detect_latency:.2f}ms)")
+
                 # 2. Generate Response (LLM)
                 llm_start = time.perf_counter()
-                response = await llm_service.generate_response(text)
+                response = await llm_service.generate_response(text, language=detected_lang)
                 llm_latency = (time.perf_counter() - llm_start) * 1000
                 print(f"🤖 Agent Responding: '{response}'")
                 
                 # 3. Stream Synthesis (TTS)
                 tts_start = time.perf_counter()
-                tts_stream = tts_service.synthesize_stream(response)
+                tts_stream = tts_service.synthesize_stream(response, language=detected_lang)
                 tts_latency = (time.perf_counter() - tts_start) * 1000
                 
                 # 4. Calculate Total TTFB
@@ -101,6 +109,7 @@ class VobizStreamHandler:
                 
                 print(f"⏱️  LATENCY METRICS:")
                 print(f"   - STT Delay: {stt_latency:.2f}ms")
+                print(f"   - DETECT Delay: {detect_latency:.2f}ms")
                 print(f"   - LLM Time:  {llm_latency:.2f}ms")
                 print(f"   - TTS Init:  {tts_latency:.2f}ms")
                 print(f"   - Total TTFB: {rtt_total:.2f}ms")
@@ -126,7 +135,8 @@ class VobizStreamHandler:
                     print("🎙️ Stream STARTED")
                     greeting = llm_service.get_greeting()
                     print(f"🤖 Greeting: {greeting}")
-                    tts_stream = tts_service.synthesize_stream(greeting)
+                    # Default greeting in English, or could be detected from user's first "hello" if we waited
+                    tts_stream = tts_service.synthesize_stream(greeting, language="en")
                     if tts_stream:
                         await audio_player.stream_audio(tts_stream)
 
@@ -202,5 +212,6 @@ class VobizStreamHandler:
         finally:
             print("📴 Call ended")
             await stt_service.close()
+            await lang_detector.close()
             llm_service.reset_conversation()
             audio_player.stop()

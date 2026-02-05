@@ -59,11 +59,25 @@ class GroqSTTService:
         wav_io.seek(0)
         wav_io.name = "audio.wav"
 
+        # DEBUG: Save file to disk to verify audio quality
+        try:
+            with open("debug_server_audio.wav", "wb") as f:
+                f.write(wav_io.getvalue())
+            print(f"🐛 DEBUG: Saved audio to 'debug_server_audio.wav'")
+        except Exception as e:
+            print(f"🐛 DEBUG: Failed to save debug audio: {e}")
+
+        wav_io.seek(0) # Reset pointer
+
         try:
             print(f"🎙️ GroqSTTService: Transcribing {audio_size} bytes...")
             
-            # Context prompt to guide the model towards Indian languages
-            prompt_text = "English, Hindi, Tamil, Kannada, Telugu."
+            # Context prompt to guide the model towards Indian languages and Romanized script
+            prompt_text = (
+                "English, Hindi, Tamil, Kannada, Telugu. "
+                "Namaste, Vanakkam, Namaskaram. "
+                "Kya haal hai? Tamil theriyuma? Bagunnara? Chennagidira?"
+            )
             
             transcription = await self.client.audio.transcriptions.create(
                 file=wav_io,
