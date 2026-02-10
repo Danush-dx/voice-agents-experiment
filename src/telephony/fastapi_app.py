@@ -2,19 +2,21 @@
 FastAPI application for Vobiz telephony integration.
 Provides REST and WebSocket endpoints for handling phone calls.
 """
+import logging
+
 from fastapi import FastAPI, WebSocket
 from fastapi.responses import Response
 
 from src.telephony.vobiz_handler import VobizStreamHandler
 
+logger = logging.getLogger(__name__)
 
-def create_app(vad_pipeline, asr_pipeline, base_url: str) -> FastAPI:
+
+def create_app(base_url: str) -> FastAPI:
     """
     Create FastAPI application with Vobiz telephony endpoints.
 
     Args:
-        vad_pipeline: Voice Activity Detection pipeline
-        asr_pipeline: Automatic Speech Recognition pipeline
         base_url: Base URL for WebSocket connections (e.g., ws://localhost:8080)
 
     Returns:
@@ -22,13 +24,11 @@ def create_app(vad_pipeline, asr_pipeline, base_url: str) -> FastAPI:
     """
     app = FastAPI(title="VoiceStreamAI Telephony", version="1.0.0")
 
-    # Store pipelines in app state
-    app.state.vad_pipeline = vad_pipeline
-    app.state.asr_pipeline = asr_pipeline
+    # Store base_url in app state
     app.state.base_url = base_url
 
     # Create stream handler
-    handler = VobizStreamHandler(vad_pipeline, asr_pipeline)
+    handler = VobizStreamHandler()
 
     @app.get("/")
     async def health_check():
@@ -41,16 +41,12 @@ def create_app(vad_pipeline, asr_pipeline, base_url: str) -> FastAPI:
         Vobiz webhook endpoint for incoming calls.
         Returns XML to connect the call to our WebSocket.
         """
-        import logging
-        logger = logging.getLogger(__name__)
-
         ws_url = app.state.base_url.replace("http://", "ws://").replace("https://", "wss://")
         ws_url = f"{ws_url}/api/telephony/stream"
 
         # XML escape ampersands in URL
         ws_url_escaped = ws_url.replace('&', '&amp;')
 
-        print(f"DEBUG: Answer endpoint called. WebSocket URL: {ws_url_escaped}")
         logger.info(f"Answer endpoint called - WebSocket URL: {ws_url_escaped}")
 
         # Vobiz XML format: URL is inner content, not attribute!
@@ -59,8 +55,6 @@ def create_app(vad_pipeline, asr_pipeline, base_url: str) -> FastAPI:
     <Stream bidirectional="true" keepCallAlive="true" audioTrack="inbound" contentType="audio/x-mulaw;rate=8000" streamTimeout="7200">{ws_url_escaped}</Stream>
 </Response>"""
 
-        print(f"DEBUG: Returning XML: {xml_response}")
-        logger.info(f"Returning XML: {xml_response}")
         return Response(content=xml_response, media_type="application/xml")
 
     @app.websocket("/api/telephony/stream")
@@ -69,10 +63,7 @@ def create_app(vad_pipeline, asr_pipeline, base_url: str) -> FastAPI:
         WebSocket endpoint for Vobiz audio streaming.
         Receives µ-law audio and returns transcriptions.
         """
-        import logging
-        logger = logging.getLogger(__name__)
         logger.info(f"WebSocket connection attempt from {websocket.client}")
-        print(f"DEBUG: WebSocket connection attempt from {websocket.client}")
         try:
             await handler.handle_stream(websocket)
         except Exception as e:

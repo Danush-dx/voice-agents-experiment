@@ -22,8 +22,9 @@ if [ ! -f .env ]; then
     echo "  cp .env.example .env"
     echo ""
     echo "Then edit .env and add your credentials:"
-    echo "  - HF_TOKEN (HuggingFace token)"
     echo "  - BASE_URL (ngrok URL)"
+    echo "  - GROQ_API_KEY"
+    echo "  - CARTESIA_API_KEY"
     echo ""
     exit 1
 fi
@@ -35,9 +36,6 @@ set +a
 
 # Validate required variables
 MISSING=""
-if [ -z "$HF_TOKEN" ] || [ "$HF_TOKEN" = "your_huggingface_token_here" ]; then
-    MISSING="${MISSING}\n  - HF_TOKEN (HuggingFace token)"
-fi
 
 if [ -z "$BASE_URL" ] || [ "$BASE_URL" = "https://<<URL>>.app" ]; then
     MISSING="${MISSING}\n  - BASE_URL (ngrok or public URL)"
@@ -61,4 +59,4 @@ echo ""
 python -m src.telephony_main
 
 # If you want to override any config, you can use command-line args:
-# python -m src.telephony_main --port 8000 --asr-args '{"model_size": "medium"}'
+# python -m src.telephony_main --port 8000

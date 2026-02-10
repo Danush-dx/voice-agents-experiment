@@ -12,10 +12,10 @@ try:
     from dotenv import load_dotenv
     env_path = Path(__file__).parent.parent / '.env'
     load_dotenv(dotenv_path=env_path)
-    logging.info(f"Loaded configuration from {env_path}")
 except ImportError:
-    logging.warning("python-dotenv not installed. Using system environment variables only.")
     pass
+
+logger = logging.getLogger(__name__)
 
 
 class Config:
@@ -26,11 +26,8 @@ class Config:
     PORT: int = int(os.getenv('PORT', '8080'))
     BASE_URL: Optional[str] = os.getenv('BASE_URL')
 
-    # HuggingFace Configuration
-    HF_TOKEN: Optional[str] = os.getenv('HF_TOKEN')
-
     # VAD Configuration
-    VAD_TYPE: str = os.getenv('VAD_TYPE', 'pyannote')
+    VAD_TYPE: str = os.getenv('VAD_TYPE', 'silero')
 
     # ASR Configuration
     ASR_TYPE: str = os.getenv('ASR_TYPE', 'groq')
@@ -67,10 +64,13 @@ class Config:
     @classmethod
     def get_vad_args(cls) -> dict:
         """Get VAD-specific arguments based on VAD type."""
+        if cls.VAD_TYPE == 'silero':
+            return {}
         if cls.VAD_TYPE == 'pyannote':
-            if not cls.HF_TOKEN:
+            hf_token = os.getenv('HF_TOKEN')
+            if not hf_token:
                 raise ValueError("HF_TOKEN is required for PyAnnote VAD. Set it in .env file.")
-            return {"auth_token": cls.HF_TOKEN}
+            return {"auth_token": hf_token}
         return {}
 
     @classmethod
@@ -95,8 +95,6 @@ class Config:
         errors = []
         if not cls.BASE_URL:
             errors.append("BASE_URL is required.")
-        if not cls.ELEVENLABS_API_KEY:
-            errors.append("ELEVENLABS_API_KEY is required.")
         if not cls.GROQ_API_KEY:
             errors.append("GROQ_API_KEY is required.")
         if not cls.CARTESIA_API_KEY:
@@ -107,26 +105,27 @@ class Config:
     @classmethod
     def display(cls) -> None:
         """Display current configuration."""
-        print("\n" + "="*60)
-        print("VoiceStreamAI Configuration (Agent Spec Active)")
-        print("="*60)
-        print(f"Server Host:          {cls.HOST}")
-        print(f"Server Port:          {cls.PORT}")
-        print(f"Base URL:             {cls.BASE_URL}")
-        
-        if cls.ASR_TYPE == 'groq':
-            print(f"STT Model:            {cls.GROQ_STT_MODEL}")
-        elif cls.ASR_TYPE == 'elevenlabs':
-            print(f"STT Model:            {cls.ELEVENLABS_STT_MODEL}")
-        elif cls.ASR_TYPE == 'faster_whisper':
-            print(f"STT Model:            {cls.ASR_MODEL_SIZE} (Faster Whisper)")
-        else:
-            print(f"STT Model:            {cls.ASR_TYPE}")
+        logger.info("=" * 60)
+        logger.info("VoiceStreamAI Configuration")
+        logger.info("=" * 60)
+        logger.info(f"Server Host:          {cls.HOST}")
+        logger.info(f"Server Port:          {cls.PORT}")
+        logger.info(f"Base URL:             {cls.BASE_URL}")
+        logger.info(f"VAD Type:             {cls.VAD_TYPE}")
 
-        print(f"LLM Model:            {cls.GROQ_LLM_MODEL}")
-        print(f"TTS Model:            {cls.CARTESIA_TTS_MODEL}")
-        print(f"Log Level:            {cls.LOG_LEVEL}")
-        print("="*60 + "\n")
+        if cls.ASR_TYPE == 'groq':
+            logger.info(f"STT Model:            {cls.GROQ_STT_MODEL}")
+        elif cls.ASR_TYPE == 'elevenlabs':
+            logger.info(f"STT Model:            {cls.ELEVENLABS_STT_MODEL}")
+        elif cls.ASR_TYPE == 'faster_whisper':
+            logger.info(f"STT Model:            {cls.ASR_MODEL_SIZE} (Faster Whisper)")
+        else:
+            logger.info(f"STT Model:            {cls.ASR_TYPE}")
+
+        logger.info(f"LLM Model:            {cls.GROQ_LLM_MODEL}")
+        logger.info(f"TTS Model:            {cls.CARTESIA_TTS_MODEL}")
+        logger.info(f"Log Level:            {cls.LOG_LEVEL}")
+        logger.info("=" * 60)
 
 
 # Create a singleton instance

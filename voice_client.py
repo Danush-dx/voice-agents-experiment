@@ -48,36 +48,27 @@ class VoiceClient:
         # State Flags
         self.greeting_active = True  # Start muted
         self.has_received_audio = False # To know when greeting starts
+        self.agent_speaking = False  # Echo mute: True while agent audio is playing
 
     def audio_callback(self, indata, outdata, frames, time, status):
         """Callback for sounddevice stream."""
         if status:
             print(f"⚠️ Audio status: {status}", file=sys.stderr)
 
-        # --- MICROPHONE INPUT ---
-        if self.greeting_active and self.has_received_audio and spk_queue.empty():
-            self.greeting_active = False
-            print("\n🎙️  Listening... (You can speak now)", file=sys.stderr)
-
-        if self.greeting_active:
-            indata.fill(0) # Send silence
-        
-        mic_queue.put(indata.copy())
-
-        # --- SPEAKER OUTPUT ---
+        # --- SPEAKER OUTPUT (process first to set agent_speaking flag) ---
         try:
             data_to_play = bytearray()
             needed_bytes = frames * 2 # 16-bit target
-            
+
             while len(data_to_play) < needed_bytes:
                 try:
                     chunk = spk_queue.get_nowait()
                     data_to_play.extend(chunk)
                 except queue.Empty:
                     break
-            
+
             if len(data_to_play) > 0:
-                # Fill buffer
+                self.agent_speaking = True
                 if len(data_to_play) >= needed_bytes:
                     chunk_16 = np.frombuffer(data_to_play[:needed_bytes], dtype='int16')
                     outdata[:len(chunk_16), 0] = chunk_16 / 32768.0
@@ -86,11 +77,23 @@ class VoiceClient:
                     outdata[:len(chunk_16), 0] = chunk_16 / 32768.0
                     outdata[len(chunk_16):, 0] = 0
             else:
+                self.agent_speaking = False
                 outdata.fill(0)
-                
+
         except Exception as e:
             print(f"Audio callback error: {e}", file=sys.stderr)
+            self.agent_speaking = False
             outdata.fill(0)
+
+        # --- MICROPHONE INPUT ---
+        if self.greeting_active and self.has_received_audio and not self.agent_speaking:
+            self.greeting_active = False
+            print("\n🎙️  Listening... (You can speak now)", file=sys.stderr)
+
+        if self.greeting_active or self.agent_speaking:
+            indata.fill(0) # Send silence (mute mic during agent playback)
+
+        mic_queue.put(indata.copy())
 
     async def send_audio_loop(self):
         """Consume mic queue, convert, and send to WebSocket."""
@@ -130,9 +133,12 @@ class VoiceClient:
                 if self.ws:
                     await self.ws.send(json.dumps(msg))
                     
+            except websockets.exceptions.ConnectionClosed:
+                print("Connection closed.", file=sys.stderr)
+                break
             except Exception as e:
                 print(f"Error sending audio: {e}", file=sys.stderr)
-                break
+                continue
 
     async def receive_audio_loop(self):
         """Receive WebSocket messages and play audio."""

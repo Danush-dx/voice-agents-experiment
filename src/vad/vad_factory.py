@@ -1,4 +1,4 @@
-from .pyannote_vad import PyannoteVAD
+from .silero_vad import SileroVAD
 
 
 class VADFactory:
@@ -12,13 +12,16 @@ class VADFactory:
         Creates a VAD pipeline based on the specified type.
 
         Args:
-            type (str): The type of VAD pipeline to create (e.g., 'pyannote').
+            type (str): The type of VAD pipeline to create (e.g., 'silero', 'pyannote').
             kwargs: Additional arguments for the VAD pipeline creation.
 
         Returns:
             VADInterface: An instance of a class that implements VADInterface.
         """
-        if type == "pyannote":
+        if type == "silero":
+            return SileroVAD(**kwargs)
+        elif type == "pyannote":
+            from .pyannote_vad import PyannoteVAD
             return PyannoteVAD(**kwargs)
         else:
             raise ValueError(f"Unknown VAD pipeline type: {type}")
